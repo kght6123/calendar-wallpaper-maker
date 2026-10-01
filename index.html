@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>カレンダー壁紙メーカー</title>
+<style>
+  :root{
+    --bg:#131017;
+    --panel:#1c1822;
+    --line:#312a3c;
+    --text:#efe9f2;
+    --muted:#9b90a8;
+    --accent:#ff5f9e;
+    --accent-dim:#3a1f2e;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:"Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP",system-ui,sans-serif;
+    font-size:14px;
+  }
+  .wrap{display:flex; gap:24px; padding:20px; align-items:flex-start; flex-wrap:wrap}
+  .stage{
+    flex:1 1 300px; min-width:260px; display:flex; flex-direction:column; align-items:center; gap:12px;
+    position:sticky; top:20px;
+  }
+  #preview{
+    max-height:72vh; max-width:100%; border-radius:14px;
+    box-shadow:0 20px 60px rgba(0,0,0,.6); background:#0b0910;
+  }
+  .panel{
+    flex:0 1 380px; min-width:300px; background:var(--panel);
+    border:1px solid var(--line); border-radius:16px; padding:18px;
+  }
+  h1{font-size:15px; margin:0 0 4px; letter-spacing:.06em}
+  .sub{color:var(--muted); font-size:12px; margin:0 0 18px; line-height:1.6}
+  fieldset{border:none; border-top:1px solid var(--line); margin:0 0 4px; padding:16px 0 4px}
+  fieldset:first-of-type{border-top:none; padding-top:0}
+  legend{color:var(--accent); font-size:11px; letter-spacing:.14em; padding:0 6px 0 0}
+  label{display:block; color:var(--muted); font-size:11px; margin:10px 0 4px; letter-spacing:.04em}
+  input[type=number], input[type=text], select{
+    width:100%; background:#0f0d14; color:var(--text); border:1px solid var(--line);
+    border-radius:8px; padding:8px 10px; font:inherit; font-size:13px;
+  }
+  input[type=range]{width:100%; accent-color:var(--accent)}
+  input[type=color]{width:100%; height:34px; background:none; border:1px solid var(--line); border-radius:8px; padding:2px}
+  .row{display:flex; gap:10px}
+  .row>*{flex:1; min-width:0}
+  .val{float:right; color:var(--text); font-variant-numeric:tabular-nums}
+  button{
+    width:100%; border:none; border-radius:10px; padding:11px; font:inherit; font-weight:600;
+    background:var(--accent); color:#1a0a12; cursor:pointer; margin-top:12px;
+  }
+  button.ghost{background:transparent; color:var(--text); border:1px solid var(--line)}
+  button:hover{filter:brightness(1.08)}
+  .drop{
+    border:1.5px dashed var(--line); border-radius:12px; padding:22px 12px; text-align:center;
+    color:var(--muted); cursor:pointer; font-size:12px; line-height:1.7;
+  }
+  .drop.on{border-color:var(--accent); background:var(--accent-dim); color:var(--text)}
+  .check{display:flex; align-items:center; gap:8px; color:var(--muted); font-size:12px; margin-top:10px}
+  .check input{accent-color:var(--accent); width:16px; height:16px}
+  .hint{color:var(--muted); font-size:11px; line-height:1.7; margin-top:10px}
+  .seg{display:flex; border:1px solid var(--line); border-radius:8px; overflow:hidden}
+  .seg button{margin:0; border-radius:0; background:transparent; color:var(--muted); font-weight:500; padding:9px 4px; font-size:12px}
+  .seg button[aria-pressed=true]{background:var(--accent); color:#1a0a12; font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="stage">
+    <canvas id="preview"></canvas>
+    <div class="hint" id="status">画像を読み込んでください</div>
+  </div>
+
+  <div class="panel">
+    <h1>カレンダー壁紙メーカー</h1>
+    <p class="sub">イラストを読み込んで月を選ぶだけ。日付の並びは自動、6段固定なので月が変わってもレイアウトは動きません。</p>
+
+    <fieldset>
+      <legend>画像</legend>
+      <div class="drop" id="drop">ここにドラッグ、またはタップして選択<br><span style="font-size:11px">長辺が足りない場合は中央基準で切り抜きます</span></div>
+      <input type="file" id="file" accept="image/*" hidden>
+    </fieldset>
+
+    <fieldset>
+      <legend>年月</legend>
+      <div class="row">
+        <div><label>年</label><input type="number" id="year" value="2026"></div>
+        <div><label>月</label><input type="number" id="month" value="8" min="1" max="12"></div>
+      </div>
+      <label>祝日・強調したい日（カンマ区切り／例: 11,15）</label>
+      <input type="text" id="holidays" placeholder="11,15">
+    </fieldset>
+
+    <fieldset>
+      <legend>配置</legend>
+      <label>出力サイズ</label>
+      <select id="size">
+        <option value="1620x2880" selected>オールラウンド 9:16 — 1620×2880</option>
+        <option value="auto">元画像のサイズそのまま</option>
+        <option value="1248x1824">1248×1824（現行）</option>
+        <option value="1290x2796">iPhone 16 Pro Max / 15 Pro Max — 1290×2796</option>
+        <option value="1179x2556">iPhone 16 / 15 / 14 Pro — 1179×2556</option>
+        <option value="1284x2778">iPhone 14 Plus 世代 — 1284×2778</option>
+        <option value="1080x2400">Android FHD+ — 1080×2400</option>
+        <option value="1488x2266">iPad mini 7 — 1488×2266</option>
+        <option value="2048x2732">iPad Pro 12.9 — 2048×2732</option>
+      </select>
+      <label>想定する端末の範囲</label>
+      <select id="range">
+        <option value="phone" selected>スマホ全般（21:9〜16:9）</option>
+        <option value="tall">縦長スマホのみ（21:9〜19:9）</option>
+        <option value="all">タブレットも含む（21:9〜3:4）</option>
+      </select>
+      <label>左右位置 <span class="val" id="vx">0.50</span></label>
+      <input type="range" id="posx" min="0" max="1" step="0.01" value="0.5">
+      <label>上下位置 <span class="val" id="vy">0.52</span></label>
+      <input type="range" id="posy" min="0.2" max="0.8" step="0.005" value="0.52">
+      <label>カレンダーの幅 <span class="val" id="vw">0.62</span></label>
+      <input type="range" id="cw" min="0.35" max="0.9" step="0.01" value="0.62">
+      <div class="check"><input type="checkbox" id="guide" checked><span>セーフゾーン表示（書き出しには入りません）</span></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>デザイン</legend>
+      <label>フォント</label>
+      <select id="font"></select>
+      <div class="row">
+        <div><label>見出しの太さ</label><select id="hw"></select></div>
+        <div><label>日付の太さ</label><select id="dw"></select></div>
+      </div>
+      <label>下地</label>
+      <div class="seg" id="styleSeg">
+        <button data-v="frost" aria-pressed="true">すりガラス</button>
+        <button data-v="plate" aria-pressed="false">単色プレート</button>
+        <button data-v="bare" aria-pressed="false">文字のみ</button>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <div><label>文字色</label><input type="color" id="fg" value="#ffffff"></div>
+        <div><label>差し色</label><input type="color" id="ac" value="#ff5f9e"></div>
+      </div>
+      <label>見出し</label>
+      <div class="seg" id="headSeg">
+        <button data-v="en" aria-pressed="true">AUGUST 2026</button>
+        <button data-v="ja" aria-pressed="false">2026年8月</button>
+        <button data-v="none" aria-pressed="false">なし</button>
+      </div>
+      <label>文字の合成モード</label>
+      <select id="blend">
+        <option value="source-over">通常</option>
+        <option value="difference">差の絶対値</option>
+        <option value="exclusion">除外</option>
+        <option value="overlay">オーバーレイ</option>
+        <option value="soft-light">ソフトライト</option>
+        <option value="hard-light">ハードライト</option>
+        <option value="screen">スクリーン</option>
+        <option value="multiply">乗算</option>
+        <option value="luminosity">輝度</option>
+      </select>
+      <label>不透明度 <span class="val" id="vo">0.92</span></label>
+      <input type="range" id="op" min="0.3" max="1" step="0.01" value="0.92">
+      <label>影の強さ <span class="val" id="vs">0.55</span></label>
+      <input type="range" id="sh" min="0" max="1" step="0.01" value="0.55">
+    </fieldset>
+
+    <fieldset>
+      <legend>書き出し</legend>
+      <button id="save">この月をPNGで保存</button>
+      <button id="save12" class="ghost">同じ絵で12ヶ月分まとめて保存</button>
+      <p class="hint">まとめて保存は1枚ずつダウンロードが走ります。Safariで止まる場合はChromeか、月別に保存してください。</p>
+    </fieldset>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const cv = $('preview'), ctx = cv.getContext('2d');
+let img = null, style = 'frost', head = 'en', lastBox = null;
+
+const MONTHS_EN = ['JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE','JULY','AUGUST','SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
+const WD = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
+
+/* ---------- 画像読み込み ---------- */
+const drop = $('drop'), file = $('file');
+drop.onclick = () => file.click();
+file.onchange = e => e.target.files[0] && load(e.target.files[0]);
+['dragenter','dragover'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add('on'); }));
+['dragleave','drop'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('on'); }));
+drop.addEventListener('drop', e => { const f = e.dataTransfer.files[0]; if (f) load(f); });
+
+function fromURL(src){
+  return new Promise((res, rej) => {
+    const im = new Image();
+    im.onload = () => res({ el: im, w: im.naturalWidth, h: im.naturalHeight });
+    im.onerror = () => rej(new Error('デコード失敗'));
+    im.src = src;
+  });
+}
+
+async function load(f){
+  $('status').textContent = '読み込み中…';
+  const tries = [
+    // 1. Blobから直接デコード。URLを経由しないのでCSPの影響を受けない
+    async () => {
+      if (!window.createImageBitmap) throw new Error('createImageBitmap非対応');
+      const b = await createImageBitmap(f);
+      return { el: b, w: b.width, h: b.height };
+    },
+    // 2. blob: URL
+    () => fromURL(URL.createObjectURL(f)),
+    // 3. data: URL
+    () => new Promise((res, rej) => {
+      const fr = new FileReader();
+      fr.onload = () => fromURL(fr.result).then(res, rej);
+      fr.onerror = () => rej(new Error('FileReader失敗'));
+      fr.readAsDataURL(f);
+    })
+  ];
+  let last;
+  for (const t of tries){
+    try {
+      img = await t();
+      $('status').textContent = `${img.w}×${img.h} を読み込みました`;
+      render();
+      return;
+    } catch(e){ last = e; }
+  }
+  $('status').textContent =
+    `読み込めませんでした（${f.type || '形式不明'} / ${Math.round(f.size/1024)}KB）— ${last?.message || '原因不明'}`;
+}
+
+/* ---------- UI 配線 ---------- */
+['year','month','holidays','size','range','posx','posy','cw','fg','ac','op','sh','guide','blend']
+  .forEach(id => $(id).addEventListener('input', () => render()));
+
+function seg(el, cb){
+  el.querySelectorAll('button').forEach(b => b.onclick = () => {
+    el.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b));
+    cb(b.dataset.v); render();
+  });
+}
+seg($('styleSeg'), v => style = v);
+seg($('headSeg'), v => head = v);
+
+/* ---------- フォント ---------- */
+const FONTS = {
+  'M PLUS Rounded 1c':   [100,300,400,500,700,800,900],
+  'Zen Maru Gothic':     [300,400,500,700,900],
+  'Zen Kaku Gothic New': [300,400,500,700,900],
+  'Noto Sans JP':        [100,200,300,400,500,600,700,800,900],
+  'M PLUS 1p':           [100,300,400,500,700,800,900],
+  'Kiwi Maru':           [300,400,500],
+  'Klee One':            [400,600],
+  'Shippori Mincho B1':  [400,500,600,700,800],
+  'RocknRoll One':       [400],
+  'Dela Gothic One':     [400],
+  'Yusei Magic':         [400],
+};
+const linked = new Set();
+
+(function initFonts(){
+  const sel = $('font');
+  Object.keys(FONTS).forEach(f => sel.add(new Option(f, f)));
+  sel.add(new Option('システム（ヒラギノ）', 'system'));
+  sel.value = 'M PLUS Rounded 1c';
+  fillWeights(900, 700);
+  sel.addEventListener('change', () => { fillWeights(); refresh(); });
+  $('hw').addEventListener('change', refresh);
+  $('dw').addEventListener('change', refresh);
+})();
+
+function weightList(){
+  const f = $('font').value;
+  return f === 'system' ? [300,400,500,600,700,800,900] : FONTS[f];
+}
+function fillWeights(h, d){
+  const list = weightList();
+  const keep = { hw: h ?? +$('hw').value, dw: d ?? +$('dw').value };
+  ['hw','dw'].forEach(id => {
+    const s = $(id);
+    s.innerHTML = '';
+    list.forEach(w => s.add(new Option(String(w), String(w))));
+    s.value = String(list.reduce((a,b) => Math.abs(b-keep[id]) < Math.abs(a-keep[id]) ? b : a));
+  });
+}
+function snapWeight(w){
+  const list = weightList();
+  return list.reduce((a,b) => Math.abs(b-w) < Math.abs(a-w) ? b : a);
+}
+function fontStack(){
+  const f = $('font').value;
+  return f === 'system'
+    ? '"Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP",system-ui,sans-serif'
+    : `"${f}","Hiragino Sans","Noto Sans JP",sans-serif`;
+}
+async function ensureFont(){
+  const f = $('font').value;
+  if (f === 'system') return;
+  if (!linked.has(f)){
+    linked.add(f);
+    const l = document.createElement('link');
+    l.rel = 'stylesheet';
+    l.href = `https://fonts.googleapis.com/css2?family=${f.replace(/ /g,'+')}:wght@${FONTS[f].join(';')}&display=swap`;
+    document.head.appendChild(l);
+  }
+  try {
+    await Promise.all(FONTS[f].map(w => document.fonts.load(`${w} 100px "${f}"`)));
+    if (!document.fonts.check(`${$('dw').value} 100px "${f}"`)) throw new Error('未適用');
+  } catch(e){
+    $('status').textContent = `${f} を読み込めませんでした。HTMLを保存してブラウザで直接開くと読み込めます。`;
+  }
+}
+async function refresh(){ await ensureFont(); render(); }
+
+/* ---------- 描画 ---------- */
+function roundRect(c,x,y,w,h,r){
+  if (c.roundRect) { c.beginPath(); c.roundRect(x,y,w,h,r); return; }
+  c.beginPath();
+  c.moveTo(x+r,y); c.arcTo(x+w,y,x+w,y+h,r); c.arcTo(x+w,y+h,x,y+h,r);
+  c.arcTo(x,y+h,x,y,r); c.arcTo(x,y,x+w,y,r); c.closePath();
+}
+
+function coverRect(iw,ih,W,H){
+  const s = Math.max(W/iw, H/ih);
+  const w = iw*s, h = ih*s;
+  return [ (W-w)/2, (H-h)/2, w, h ];
+}
+
+function canvasSize(){
+  const v = $('size').value;
+  if (v === 'auto') return img ? [img.w, img.h] : [1620, 2880];
+  return v.split('x').map(Number);
+}
+
+function render(target, opt){
+  const [W,H] = canvasSize();
+  const c = target || cv, x = target ? c.getContext('2d') : ctx;
+  c.width = W; c.height = H;
+  if (!target) { c.style.width = 'auto'; c.style.height = '72vh'; }
+
+  // 背景
+  if (img) {
+    const r = coverRect(img.w, img.h, W, H);
+    x.drawImage(img.el, r[0], r[1], r[2], r[3]);
+  } else {
+    const g = x.createLinearGradient(0,0,W,H);
+    g.addColorStop(0,'#2a2233'); g.addColorStop(1,'#12101a');
+    x.fillStyle = g; x.fillRect(0,0,W,H);
+  }
+
+  const year  = opt?.year  ?? +$('year').value;
+  const month = opt?.month ?? +$('month').value;
+  drawCalendar(x, W, H, year, month);
+
+  if (!target && $('guide').checked) drawGuides(x, W, H);
+}
+
+function drawCalendar(x, W, H, year, month){
+  const fg = $('fg').value, ac = $('ac').value;
+  const op = +$('op').value, shp = +$('sh').value;
+  const cardW = W * +$('cw').value;
+  const cell  = cardW / 7;
+  const pad   = cell * 0.42;
+  const headH = head === 'none' ? 0 : cell * 1.95;
+  const wdH   = cell * 0.95;
+  const rowH  = cell * 0.92;
+  const boxW  = cardW + pad*2;
+  const boxH  = headH + wdH + rowH*6 + pad*2;
+
+  const cxCenter = pad + boxW/2 + (W - boxW - pad*2) * +$('posx').value;
+  const cyCenter = H * +$('posy').value;
+  const bx = cxCenter - boxW/2, by = cyCenter - boxH/2;
+  lastBox = { x: bx, y: by, w: boxW, h: boxH };
+  const radius = cell * 0.55;
+
+  // 下地
+  x.save();
+  if (style === 'frost') {
+    roundRect(x,bx,by,boxW,boxH,radius); x.clip();
+    if (img) {
+      const r = coverRect(img.w, img.h, W, H);
+      x.filter = `blur(${Math.round(cell*0.9)}px)`;
+      x.drawImage(img.el, r[0], r[1], r[2], r[3]);
+      x.filter = 'none';
+    }
+    x.fillStyle = `rgba(255,255,255,${0.16*op})`;
+    x.fillRect(bx,by,boxW,boxH);
+  } else if (style === 'plate') {
+    x.shadowColor = `rgba(0,0,0,${0.5*shp})`;
+    x.shadowBlur = cell*1.2; x.shadowOffsetY = cell*0.25;
+    roundRect(x,bx,by,boxW,boxH,radius);
+    x.fillStyle = `rgba(18,14,22,${0.52*op})`;
+    x.fill();
+  }
+  x.restore();
+
+  if (style === 'frost') {
+    x.save();
+    roundRect(x,bx,by,boxW,boxH,radius);
+    x.strokeStyle = `rgba(255,255,255,${0.35*op})`;
+    x.lineWidth = Math.max(1, cell*0.02); x.stroke();
+    x.restore();
+  }
+
+  // 文字共通
+  const blend = $('blend').value;
+  x.save();
+  x.globalCompositeOperation = blend;
+  x.textAlign = 'center'; x.textBaseline = 'middle';
+  x.globalAlpha = op;
+  // 合成モードを使うときは影が汚れるので落とす
+  if (blend === 'source-over' && (style === 'bare' || shp > 0)) {
+    x.shadowColor = `rgba(0,0,0,${(style==='bare'?0.75:0.35)*shp})`;
+    x.shadowBlur = cell * 0.5;
+    x.shadowOffsetY = cell * 0.06;
+  }
+  const HW = +$('hw').value, DW = +$('dw').value;
+  const F = (size, weight) => `${snapWeight(weight)} ${size}px ${fontStack()}`;
+
+  const left = bx + pad, top = by + pad;
+
+  // 見出し
+  if (head !== 'none') {
+    x.fillStyle = fg;
+    if (head === 'en') {
+      x.font = F(cell*0.72, HW);
+      x.letterSpacing = `${cell*0.10}px`;
+      x.fillText(MONTHS_EN[month-1], bx+boxW/2, top + cell*0.5);
+      x.letterSpacing = '0px';
+      x.fillStyle = ac;
+      x.font = F(cell*0.42, DW);
+      x.fillText(String(year), bx+boxW/2, top + cell*1.15);
+    } else {
+      x.font = F(cell*0.40, DW);
+      x.fillStyle = ac;
+      x.fillText(`${year}`, bx+boxW/2, top + cell*0.34);
+      x.fillStyle = fg;
+      x.font = F(cell*0.85, HW);
+      x.fillText(`${month}月`, bx+boxW/2, top + cell*1.05);
+    }
+    // 見出し下の罫
+    x.save();
+    x.globalAlpha = op*0.35;
+    x.strokeStyle = fg; x.lineWidth = Math.max(1, cell*0.015);
+    x.beginPath();
+    x.moveTo(left, top + headH - cell*0.16);
+    x.lineTo(left + cardW, top + headH - cell*0.16);
+    x.stroke();
+    x.restore();
+  }
+
+  // 曜日
+  const wdY = top + headH + wdH*0.45;
+  x.font = F(cell*0.26, DW);
+  x.letterSpacing = `${cell*0.03}px`;
+  for (let i=0;i<7;i++){
+    x.fillStyle = i===0 ? ac : (i===6 ? fg : fg);
+    x.globalAlpha = i===0 ? op : op*(i===6 ? 0.8 : 0.62);
+    x.fillText(WD[i], left + cell*(i+0.5), wdY);
+  }
+  x.letterSpacing = '0px';
+  x.globalAlpha = op;
+
+  // 日付（6段固定）
+  const first = new Date(year, month-1, 1).getDay();
+  const days  = new Date(year, month, 0).getDate();
+  const hol   = ($('holidays').value.match(/\d+/g) || []).map(Number);
+  const gridTop = top + headH + wdH;
+
+  for (let i=0;i<42;i++){
+    const d = i - first + 1;
+    if (d < 1 || d > days) continue;
+    const col = i % 7, row = (i/7)|0;
+    const px = left + cell*(col+0.5);
+    const py = gridTop + rowH*(row+0.5);
+    const special = col === 0 || hol.includes(d);
+
+    if (special) {
+      x.save();
+      x.globalAlpha = op*0.9;
+      x.shadowColor = 'transparent';
+      x.fillStyle = ac;
+      x.beginPath();
+      x.arc(px, py, cell*0.36, 0, Math.PI*2);
+      x.globalAlpha = op*0.22; x.fill();
+      x.restore();
+    }
+    x.fillStyle = special ? ac : fg;
+    x.globalAlpha = col === 6 ? op*0.86 : op;
+    x.font = F(cell*0.40, special ? DW + 200 : DW);
+    x.fillText(String(d), px, py);
+  }
+  x.restore();
+}
+
+const RANGES = { phone:[0.4286, 0.5625], tall:[0.4286, 0.4750], all:[0.4286, 0.75] };
+
+// 想定するどの端末で表示しても必ず画面内に残る中央の矩形
+function safeRect(W,H){
+  const [rMin, rMax] = RANGES[$('range').value];
+  const w = Math.min(W, H * rMin);
+  const h = Math.min(H, W / rMax);
+  return { x:(W-w)/2, y:(H-h)/2, w, h };
+}
+
+function drawGuides(x, W, H){
+  const s = safeRect(W, H);
+  const fits = lastBox &&
+    lastBox.x >= s.x && lastBox.y >= s.y &&
+    lastBox.x + lastBox.w <= s.x + s.w &&
+    lastBox.y + lastBox.h <= s.y + s.h;
+
+  x.save();
+  // 切れる範囲を暗くする
+  x.fillStyle = 'rgba(0,0,0,.5)';
+  x.fillRect(0, 0, W, s.y);
+  x.fillRect(0, s.y + s.h, W, H - (s.y + s.h));
+  x.fillRect(0, s.y, s.x, s.h);
+  x.fillRect(s.x + s.w, s.y, W - (s.x + s.w), s.h);
+
+  // 時計・ウィジェット帯（セーフ範囲＝実際に見える画面を基準に）
+  x.fillStyle = 'rgba(0,0,0,.38)';
+  x.fillRect(s.x, s.y, s.w, s.h * 0.30);
+  x.fillRect(s.x, s.y + s.h * 0.86, s.w, s.h * 0.14);
+
+  const lw = Math.max(2, W * 0.004);
+  x.lineWidth = lw;
+  x.strokeStyle = fits ? 'rgba(120,255,190,.95)' : 'rgba(255,95,158,.95)';
+  x.setLineDash([W*0.02, W*0.015]);
+  x.strokeRect(s.x + lw/2, s.y + lw/2, s.w - lw, s.h - lw);
+  x.setLineDash([]);
+
+  x.font = `600 ${W*0.026}px system-ui, sans-serif`;
+  x.textAlign = 'center';
+  x.textBaseline = 'bottom';
+  const cxg = s.x + s.w/2;
+  const lh = W * 0.038;
+  let gy = s.y + s.h - s.h * 0.025;
+  if (!fits) {
+    x.fillStyle = 'rgba(255,95,158,1)';
+    x.fillText('カレンダーがはみ出しています', cxg, gy);
+    gy -= lh;
+  }
+  x.fillStyle = 'rgba(255,255,255,.9)';
+  x.fillText(`確実に残る範囲 ${Math.round(s.w)}×${Math.round(s.h)}`, cxg, gy);
+  x.fillText('暗い帯＝時計・ウィジェットで隠れやすい範囲', cxg, gy - lh);
+  x.restore();
+}
+
+/* ---------- 保存 ---------- */
+function download(canvas, name){
+  canvas.toBlob(b => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(b); a.download = name; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  }, 'image/png');
+}
+function fileName(y,m){ return `wallpaper_${y}-${String(m).padStart(2,'0')}.png`; }
+
+$('save').onclick = () => {
+  const off = document.createElement('canvas');
+  render(off);
+  download(off, fileName(+$('year').value, +$('month').value));
+};
+
+$('save12').onclick = async () => {
+  const y = +$('year').value;
+  for (let m=1; m<=12; m++){
+    const off = document.createElement('canvas');
+    render(off, {year:y, month:m});
+    download(off, fileName(y,m));
+    await new Promise(r => setTimeout(r, 450));
+  }
+  $('status').textContent = `${y}年の12ヶ月分を書き出しました`;
+};
+
+/* ---------- 表示値 ---------- */
+const bind = (id, out, fix=2) => { const f = () => $(out).textContent = (+$(id).value).toFixed(fix); $(id).addEventListener('input', f); f(); };
+bind('posx','vx'); bind('posy','vy',3); bind('cw','vw'); bind('op','vo'); bind('sh','vs');
+
+refresh();
+</script>
+</body>
+</html>
